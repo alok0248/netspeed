@@ -9,6 +9,97 @@ HWND_TOPMOST = -1
 SWP_NOMOVE = 0x0002
 SWP_NOSIZE = 0x0001
 
+class BandwidthLimitDialog(QtWidgets.QDialog):
+    def __init__(self, current_limit_bytes, parent=None):
+        super().__init__(parent)
+        self.current_limit = current_limit_bytes
+        self.new_limit = current_limit_bytes
+        self.init_ui()
+        
+    def init_ui(self):
+        self.setWindowTitle('Set Bandwidth Limit')
+        self.setFixedSize(400, 200)
+        
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # Info label
+        info_label = QtWidgets.QLabel('Enter bandwidth limit in GB:')
+        info_label.setStyleSheet('font-size: 12pt; font-weight: bold;')
+        layout.addWidget(info_label)
+        
+        # Input field
+        self.input_field = QtWidgets.QLineEdit()
+        # Convert bytes to GB for initial value
+        initial_gb = self.current_limit / (1024 * 1024 * 1024)
+        self.input_field.setText(f'{initial_gb:.0f}')
+        self.input_field.setStyleSheet('''
+            QLineEdit {
+                padding: 10px;
+                font-size: 12pt;
+                border: 2px solid #333;
+                border-radius: 5px;
+                background-color: #222;
+                color: white;
+            }
+        ''')
+        layout.addWidget(self.input_field)
+        
+        # Buttons
+        button_layout = QtWidgets.QHBoxLayout()
+        
+        ok_button = QtWidgets.QPushButton('OK')
+        ok_button.setStyleSheet('''
+            QPushButton {
+                background-color: #00ff00;
+                color: black;
+                padding: 8px 20px;
+                border-radius: 5px;
+                font-weight: bold;
+                font-size: 11pt;
+            }
+            QPushButton:hover {
+                background-color: #00dd00;
+            }
+        ''')
+        ok_button.clicked.connect(self.accept_dialog)
+        button_layout.addWidget(ok_button)
+        
+        cancel_button = QtWidgets.QPushButton('Cancel')
+        cancel_button.setStyleSheet('''
+            QPushButton {
+                background-color: #555;
+                color: white;
+                padding: 8px 20px;
+                border-radius: 5px;
+                font-weight: bold;
+                font-size: 11pt;
+            }
+            QPushButton:hover {
+                background-color: #777;
+            }
+        ''')
+        cancel_button.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_button)
+        
+        layout.addLayout(button_layout)
+        
+    def accept_dialog(self):
+        try:
+            limit_gb = float(self.input_field.text())
+            if limit_gb > 0:
+                self.new_limit = int(limit_gb * 1024 * 1024 * 1024)  # Convert GB to bytes
+                self.accept()
+            else:
+                QtWidgets.QMessageBox.warning(self, 'Invalid Input', 'Please enter a positive number!')
+        except ValueError:
+            QtWidgets.QMessageBox.warning(self, 'Invalid Input', 'Please enter a valid number!')
+        
+    def get_limit(self):
+        return self.new_limit
+
+
 class ColorSelectionPanel(QtWidgets.QDialog):
     def __init__(self, parent_overlay=None):
         super().__init__()
@@ -148,7 +239,7 @@ class ColorSelectionPanel(QtWidgets.QDialog):
 
 
 class SpeedOverlay(QtWidgets.QWidget):
-    def __init__(self):
+    def __init__(self, monitor=None):
         super().__init__()
         print("SpeedOverlay initializing...")
         self.settings = QtCore.QSettings('NetSpeed', 'Overlay')
@@ -159,6 +250,7 @@ class SpeedOverlay(QtWidgets.QWidget):
         self.transparent_theme = self.settings.value('transparent_theme', False, type=bool)
         self.opacity = self.settings.value('opacity', 70, type=int)
         self.color_panel = None
+        self.monitor = monitor  # Hold reference to NetMonitor for bandwidth limit
         
         # Dragging
         self.drag_active = False
@@ -359,6 +451,20 @@ class SpeedOverlay(QtWidgets.QWidget):
                 action.setChecked(True)
             action.triggered.connect(lambda checked, u=unit: self.set_speed_unit(u))
             
+        # Bandwidth limit submenu
+        bw_menu = menu.addMenu('Bandwidth Limit')
+        
+        edit_limit_action = bw_menu.addAction('Edit Limit...')
+        edit_limit_action.triggered.connect(self.open_bandwidth_dialog)
+        
+        # Quick increase options
+        bw_menu.addSeparator()
+        increase_options = [10, 50, 100]  # in GB
+        for gb in increase_options:
+            action = bw_menu.addAction(f'Increase by {gb} GB')
+            action.triggered.connect(lambda checked, g=gb: self.increase_bandwidth_limit(g))
+        
+        # Theme menu
         theme_menu = menu.addMenu('Theme')
         
         solid_action = theme_menu.addAction('Solid Theme')
@@ -467,11 +573,27 @@ class SpeedOverlay(QtWidgets.QWidget):
         self.settings.setValue('fixed', self.fixed)
         self.update_cursor()
 
+    def open_bandwidth_dialog(self):
+        if not self.monitor:
+            return
+        current_limit = self.monitor.get_bandwidth_limit()
+        dialog = BandwidthLimitDialog(current_limit, self)
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            new_limit = dialog.get_limit()
+            self.monitor.set_bandwidth_limit(new_limit)
+    
+    def increase_bandwidth_limit(self, gb_amount):
+        if not self.monitor:
+            return
+        current_limit = self.monitor.get_bandwidth_limit()
+        additional_bytes = gb_amount * 1024 * 1024 * 1024
+        self.monitor.set_bandwidth_limit(current_limit + additional_bytes)
+    
     def restart_app(self):
         QtCore.QProcess.startDetached(sys.executable, sys.argv)
         QtWidgets.qApp.quit()
 
-    def update_text(self, dl, ul, total, fullscreen):
+    def update_text(self, dl, ul, total, limit, fullscreen):
         if fullscreen:
             self.hide()
         else:
@@ -481,10 +603,16 @@ class SpeedOverlay(QtWidgets.QWidget):
         dl_str = format_speed(dl, self.speed_unit)
         ul_str = format_speed(ul, self.speed_unit)
         today_total_str = format_data_size(total)
+        limit_str = format_data_size(limit)
+        remaining = limit - total
+        if remaining < 0:
+            remaining = 0
+        remaining_str = format_data_size(remaining)
         
         self.label.setText(
             f"\u2193 {dl_str}   \u2191 {ul_str}\n"
-            f"Today: {today_total_str}"
+            f"Today: {today_total_str} / {limit_str}\n"
+            f"Remaining: {remaining_str}"
         )
         
         # Resize box to fit text content

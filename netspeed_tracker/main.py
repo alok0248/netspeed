@@ -75,7 +75,7 @@ else:
                     pass
 
 class Worker(QtCore.QObject):
-    update_signal = QtCore.pyqtSignal(float, float, float, bool)
+    update_signal = QtCore.pyqtSignal(float, float, float, float, bool)
 
     def __init__(self, monitor):
         super().__init__()
@@ -84,8 +84,8 @@ class Worker(QtCore.QObject):
 
     def run(self):
         while self.running:
-            dl, ul, total, fullscreen = self.monitor.sample()
-            self.update_signal.emit(dl, ul, total, fullscreen)
+            dl, ul, total, limit, fullscreen = self.monitor.sample()
+            self.update_signal.emit(dl, ul, total, limit, fullscreen)
             time.sleep(1)
 
 def run():
@@ -100,22 +100,22 @@ def run():
         
         print("Creating QApplication...")
         app = QtWidgets.QApplication(sys.argv)
+        print("Starting NetMonitor...")
+        monitor = NetMonitor()
         print("Creating overlay...")
-        overlay = SpeedOverlay()
+        overlay = SpeedOverlay(monitor)
         print("Showing overlay...")
         overlay.show()
         print("Starting tray icon...")
         start_tray(app, overlay)
-        print("Starting NetMonitor...")
-        monitor = NetMonitor()
         
         worker = Worker(monitor)
         thread = QtCore.QThread()
         worker.moveToThread(thread)
         
-        def update_ui(dl, ul, total, fullscreen):
-            print(f"Update UI: dl={dl}, ul={ul}, total={total}, fullscreen={fullscreen}")
-            overlay.update_text(dl, ul, total, fullscreen)
+        def update_ui(dl, ul, total, limit, fullscreen):
+            print(f"Update UI: dl={dl}, ul={ul}, total={total}, limit={limit}, fullscreen={fullscreen}")
+            overlay.update_text(dl, ul, total, limit, fullscreen)
         
         worker.update_signal.connect(update_ui)
         thread.started.connect(worker.run)

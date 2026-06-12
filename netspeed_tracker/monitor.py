@@ -50,6 +50,17 @@ class NetMonitor:
         # Load today's data from settings (persistent)
         self._load_today_data()
         
+        # Load bandwidth limit (in bytes, default 100 GB)
+        saved_limit = self.settings.value('bandwidth_limit')
+        if saved_limit is None:
+            self.bandwidth_limit = 100 * 1024 * 1024 * 1024  # 100 GB default
+        else:
+            try:
+                self.bandwidth_limit = int(saved_limit)
+            except (ValueError, TypeError):
+                self.bandwidth_limit = 100 * 1024 * 1024 * 1024
+        self.settings.setValue('bandwidth_limit', self.bandwidth_limit)
+        
         self.user32 = ctypes.windll.user32
         self.screen_width = self.user32.GetSystemMetrics(0)
         self.screen_height = self.user32.GetSystemMetrics(1)
@@ -91,6 +102,15 @@ class NetMonitor:
             self.settings.setValue('data_date', today_date_str)
             self._save_today_data()
 
+    def set_bandwidth_limit(self, bytes_limit):
+        """Set bandwidth limit in bytes."""
+        self.bandwidth_limit = bytes_limit
+        self.settings.setValue('bandwidth_limit', bytes_limit)
+        
+    def get_bandwidth_limit(self):
+        """Get bandwidth limit in bytes."""
+        return self.bandwidth_limit
+        
     def _is_fullscreen(self):
         try:
             hwnd = win32gui.GetForegroundWindow()
@@ -140,7 +160,7 @@ class NetMonitor:
             total = self.today_rx + self.today_tx
             self._save_today_data()
             fullscreen = self._is_fullscreen()
-            return dl, ul, total, fullscreen
+            return dl, ul, total, self.bandwidth_limit, fullscreen
         except Exception as e:
             print(f"Error retrieving network data: {e}")
-            return 0, 0, self.today_rx + self.today_tx, False
+            return 0, 0, self.today_rx + self.today_tx, self.bandwidth_limit, False
