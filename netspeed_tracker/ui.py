@@ -457,13 +457,6 @@ class SpeedOverlay(QtWidgets.QWidget):
         edit_limit_action = bw_menu.addAction('Edit Limit...')
         edit_limit_action.triggered.connect(self.open_bandwidth_dialog)
         
-        # Quick increase options
-        bw_menu.addSeparator()
-        increase_options = [10, 50, 100]  # in GB
-        for gb in increase_options:
-            action = bw_menu.addAction(f'Increase by {gb} GB')
-            action.triggered.connect(lambda checked, g=gb: self.increase_bandwidth_limit(g))
-        
         # Theme menu
         theme_menu = menu.addMenu('Theme')
         
@@ -581,13 +574,6 @@ class SpeedOverlay(QtWidgets.QWidget):
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
             new_limit = dialog.get_limit()
             self.monitor.set_bandwidth_limit(new_limit)
-    
-    def increase_bandwidth_limit(self, gb_amount):
-        if not self.monitor:
-            return
-        current_limit = self.monitor.get_bandwidth_limit()
-        additional_bytes = gb_amount * 1024 * 1024 * 1024
-        self.monitor.set_bandwidth_limit(current_limit + additional_bytes)
     
     def restart_app(self):
         QtCore.QProcess.startDetached(sys.executable, sys.argv)
