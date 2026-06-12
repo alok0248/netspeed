@@ -604,16 +604,20 @@ class SpeedOverlay(QtWidgets.QWidget):
         ul_str = format_speed(ul, self.speed_unit)
         today_total_str = format_data_size(total)
         limit_str = format_data_size(limit)
-        remaining = limit - total
-        if remaining < 0:
-            remaining = 0
-        remaining_str = format_data_size(remaining)
+        is_over_limit = total >= limit
         
-        self.label.setText(
-            f"\u2193 {dl_str}   \u2191 {ul_str}\n"
-            f"Today: {today_total_str} / {limit_str}\n"
-            f"Remaining: {remaining_str}"
-        )
+        if is_over_limit:
+            # Show warning icon if over limit
+            self.label.setText(
+                f"\u26A0 \u2193 {dl_str}   \u2191 {ul_str}\n"
+                f"Today: {today_total_str} / {limit_str}"
+            )
+        else:
+            # Normal display without icon
+            self.label.setText(
+                f"\u2193 {dl_str}   \u2191 {ul_str}\n"
+                f"Today: {today_total_str} / {limit_str}"
+            )
         
         # Resize box to fit text content
         self.label.adjustSize()
