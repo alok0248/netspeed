@@ -1,0 +1,7 @@
+
+PyQt5
+psutil
+pystray
+Pillow
+pywin32
+
