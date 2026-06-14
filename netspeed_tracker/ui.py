@@ -1,13 +1,15 @@
 import sys
-import ctypes
 from PyQt5 import QtWidgets, QtCore, QtGui
 from netspeed_tracker.monitor import format_data_size, format_speed
+from netspeed_tracker.tray import open_usage_dashboard_browser
 
-# Windows API constants and functions
-user32 = ctypes.windll.user32
-HWND_TOPMOST = -1
-SWP_NOMOVE = 0x0002
-SWP_NOSIZE = 0x0001
+# Windows-specific imports only on Windows
+if sys.platform == 'win32':
+    import ctypes
+    user32 = ctypes.windll.user32
+    HWND_TOPMOST = -1
+    SWP_NOMOVE = 0x0002
+    SWP_NOSIZE = 0x0001
 
 class BandwidthLimitDialog(QtWidgets.QDialog):
     def __init__(self, current_limit_bytes, parent=None):
@@ -112,7 +114,7 @@ class ColorSelectionPanel(QtWidgets.QDialog):
         
     def init_ui(self):
         self.setWindowTitle('Theme Settings')
-        self.setFixedSize(360, 260)
+        self.setFixedSize(360, 320)
         self.setStyleSheet('''
             QDialog {
                 background-color: #2b2b2b;
@@ -170,9 +172,29 @@ class ColorSelectionPanel(QtWidgets.QDialog):
         bg_layout.addStretch()
         layout.addLayout(bg_layout)
         
-        # Text color button
+        # Download color button
+        dl_color_layout = QtWidgets.QHBoxLayout()
+        dl_color_layout.addWidget(QtWidgets.QLabel('Download Color:'))
+        self.dl_color_button = QtWidgets.QPushButton()
+        self.dl_color_button.setFixedSize(30, 30)
+        self.dl_color_button.clicked.connect(self.choose_dl_color)
+        dl_color_layout.addWidget(self.dl_color_button)
+        dl_color_layout.addStretch()
+        layout.addLayout(dl_color_layout)
+        
+        # Upload color button
+        ul_color_layout = QtWidgets.QHBoxLayout()
+        ul_color_layout.addWidget(QtWidgets.QLabel('Upload Color:'))
+        self.ul_color_button = QtWidgets.QPushButton()
+        self.ul_color_button.setFixedSize(30, 30)
+        self.ul_color_button.clicked.connect(self.choose_ul_color)
+        ul_color_layout.addWidget(self.ul_color_button)
+        ul_color_layout.addStretch()
+        layout.addLayout(ul_color_layout)
+        
+        # Total text color button
         text_layout = QtWidgets.QHBoxLayout()
-        text_layout.addWidget(QtWidgets.QLabel('Text Color:'))
+        text_layout.addWidget(QtWidgets.QLabel('Total Text Color:'))
         self.text_button = QtWidgets.QPushButton()
         self.text_button.setFixedSize(30, 30)
         self.text_button.clicked.connect(self.choose_text_color)
@@ -202,8 +224,12 @@ class ColorSelectionPanel(QtWidgets.QDialog):
         
     def load_colors(self):
         bg_color = self.settings.value('bg_color', '#000000', type=str)
-        text_color = self.settings.value('text_color', '#00FF00', type=str)
+        dl_color = self.settings.value('dl_color', '#00FF00', type=str)
+        ul_color = self.settings.value('ul_color', '#FF0000', type=str)
+        text_color = self.settings.value('text_color', '#FFFFFF', type=str)
         self.bg_button.setStyleSheet(f'background-color: {bg_color}; border: 1px solid #555555; border-radius: 4px;')
+        self.dl_color_button.setStyleSheet(f'background-color: {dl_color}; border: 1px solid #555555; border-radius: 4px;')
+        self.ul_color_button.setStyleSheet(f'background-color: {ul_color}; border: 1px solid #555555; border-radius: 4px;')
         self.text_button.setStyleSheet(f'background-color: {text_color}; border: 1px solid #555555; border-radius: 4px;')
         
     def update_opacity(self, value):
@@ -226,6 +252,28 @@ class ColorSelectionPanel(QtWidgets.QDialog):
         except Exception as e:
             print(f"Error choosing background color: {e}")
                 
+    def choose_dl_color(self):
+        try:
+            color = QtWidgets.QColorDialog.getColor()
+            if color.isValid():
+                self.settings.setValue('dl_color', color.name())
+                self.dl_color_button.setStyleSheet(f'background-color: {color.name()}; border: 1px solid #555555; border-radius: 4px;')
+                if self.parent_overlay and hasattr(self.parent_overlay, 'apply_theme'):
+                    self.parent_overlay.apply_theme()
+        except Exception as e:
+            print(f"Error choosing download color: {e}")
+            
+    def choose_ul_color(self):
+        try:
+            color = QtWidgets.QColorDialog.getColor()
+            if color.isValid():
+                self.settings.setValue('ul_color', color.name())
+                self.ul_color_button.setStyleSheet(f'background-color: {color.name()}; border: 1px solid #555555; border-radius: 4px;')
+                if self.parent_overlay and hasattr(self.parent_overlay, 'apply_theme'):
+                    self.parent_overlay.apply_theme()
+        except Exception as e:
+            print(f"Error choosing upload color: {e}")
+            
     def choose_text_color(self):
         try:
             color = QtWidgets.QColorDialog.getColor()
@@ -270,14 +318,19 @@ class SpeedOverlay(QtWidgets.QWidget):
         self.update_cursor()
         self.apply_theme()
         
+        # Get initial colors
+        dl_color = self.settings.value('dl_color', '#00FF00', type=str)
+        ul_color = self.settings.value('ul_color', '#FF0000', type=str)
+        text_color = self.settings.value('text_color', '#FFFFFF', type=str)
+        
         # Set initial text and adjust size
         dl_str = format_speed(0, self.speed_unit)
         ul_str = format_speed(0, self.speed_unit)
         today_total_str = format_data_size(0)
-        self.label.setText(
-            f"\u2193 {dl_str}   \u2191 {ul_str}\n"
-            f"Today: {today_total_str}"
-        )
+        self.label.setText(f'''
+            <span style="color: {dl_color};">↓ {dl_str}</span>   <span style="color: {ul_color};">↑ {ul_str}</span><br>
+            <span style="color: {text_color};">Today: {today_total_str}</span>
+        ''')
         self.label.adjustSize()
         self.resize(self.label.size())
         self.label.setGeometry(0, 0, self.width(), self.height())
@@ -285,13 +338,14 @@ class SpeedOverlay(QtWidgets.QWidget):
         print("Showing overlay...")
         self.show()
         self.raise_()
-        self.activateWindow()
         print("Overlay should be visible now.")
 
     def init_ui(self):
         self.setWindowFlags(
+            QtCore.Qt.Tool |
             QtCore.Qt.WindowStaysOnTopHint |
-            QtCore.Qt.FramelessWindowHint
+            QtCore.Qt.FramelessWindowHint |
+            QtCore.Qt.WindowDoesNotAcceptFocus
         )
         
         self.label = QtWidgets.QLabel(self)
@@ -311,13 +365,16 @@ class SpeedOverlay(QtWidgets.QWidget):
         
     def ensure_topmost(self):
         self.raise_()
-        if hasattr(self, 'winId'):
+        if sys.platform == 'win32' and hasattr(self, 'winId'):
+            # Windows-specific topmost handling
             hwnd = int(self.winId())
             user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
 
     def apply_theme(self):
         bg_color = self.settings.value('bg_color', '#000000', type=str)
-        text_color = self.settings.value('text_color', '#00FF00', type=str)
+        dl_color = self.settings.value('dl_color', '#00FF00', type=str)
+        ul_color = self.settings.value('ul_color', '#FF0000', type=str)
+        text_color = self.settings.value('text_color', '#FFFFFF', type=str)
         opacity_val = self.settings.value('opacity', 70, type=int)
         
         # Convert hex color to RGBA
@@ -334,6 +391,11 @@ class SpeedOverlay(QtWidgets.QWidget):
         
         print(f"Applying theme - glass: {self.glass_theme}, transparent: {self.transparent_theme}")
         
+        # Store colors for update_text
+        self.dl_color = dl_color
+        self.ul_color = ul_color
+        self.text_color = text_color
+        
         if self.transparent_theme:
             # Fully transparent theme: no background at all
             self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
@@ -341,7 +403,6 @@ class SpeedOverlay(QtWidgets.QWidget):
             self.label.setStyleSheet(f'''
                 QLabel {{
                     background-color: transparent;
-                    color: {text_color};
                     padding: 12px;
                     font-size: {self.font_size}pt;
                     font-weight: bold;
@@ -354,7 +415,6 @@ class SpeedOverlay(QtWidgets.QWidget):
             self.label.setStyleSheet(f'''
                 QLabel {{
                     background-color: rgba(0, 0, 0, {int(opacity_val * 2.55)});
-                    color: {text_color};
                     padding: 12px;
                     font-size: {self.font_size}pt;
                     font-weight: bold;
@@ -369,7 +429,6 @@ class SpeedOverlay(QtWidgets.QWidget):
             self.label.setStyleSheet(f'''
                 QLabel {{
                     background-color: {hex_to_rgba(bg_color, opacity_val)};
-                    color: {text_color};
                     padding: 12px;
                     font-size: {self.font_size}pt;
                     font-weight: bold;
@@ -457,6 +516,10 @@ class SpeedOverlay(QtWidgets.QWidget):
         edit_limit_action = bw_menu.addAction('Edit Limit...')
         edit_limit_action.triggered.connect(self.open_bandwidth_dialog)
         
+        # Data directory option
+        data_dir_action = menu.addAction('Choose Data Directory')
+        data_dir_action.triggered.connect(self.choose_data_directory)
+        
         # Theme menu
         theme_menu = menu.addMenu('Theme')
         
@@ -481,6 +544,21 @@ class SpeedOverlay(QtWidgets.QWidget):
         fix_label = 'Unlock Position' if self.fixed else 'Fix Position'
         fix_action = menu.addAction(fix_label)
         fix_action.triggered.connect(self.toggle_fix_position)
+        
+        menu.addSeparator()
+        
+        # Enable/Disable Report option
+        report_enabled = self.settings.value('report_enabled', True, type=bool)
+        enable_report_action = menu.addAction('Enable Report')
+        enable_report_action.setCheckable(True)
+        enable_report_action.setChecked(report_enabled)
+        enable_report_action.triggered.connect(lambda checked: self.settings.setValue('report_enabled', checked))
+        
+        # Show Report option only if enabled
+        if report_enabled:
+            report_action = menu.addAction('Report')
+            if self.monitor:
+                report_action.triggered.connect(lambda: open_usage_dashboard_browser(self.monitor))
         
         menu.addSeparator()
         reset_action = menu.addAction('Reset to default setting')
@@ -576,6 +654,30 @@ class SpeedOverlay(QtWidgets.QWidget):
             new_limit = dialog.get_limit()
             self.monitor.set_bandwidth_limit(new_limit)
     
+    def choose_data_directory(self):
+        """Open a directory chooser and set the data directory in settings."""
+        # Open directory dialog
+        directory = QtWidgets.QFileDialog.getExistingDirectory(
+            self,
+            "Choose Data Directory",
+            options=QtWidgets.QFileDialog.ShowDirsOnly | QtWidgets.QFileDialog.DontResolveSymlinks
+        )
+        
+        if directory:
+            # Save the chosen directory
+            self.settings.setValue('data_directory', directory)
+            
+            # Show a message to the user
+            QtWidgets.QMessageBox.information(
+                self,
+                "Data Directory Set",
+                f"Data directory has been set to:\n{directory}\n\nThe app will restart to use the new directory."
+            )
+            
+            # Restart the app
+            QtCore.QProcess.startDetached(sys.executable, sys.argv)
+            QtWidgets.qApp.quit()
+    
     def reset_to_default(self):
         # Clear all stored settings to defaults and ensure they are written
         self.settings.clear()
@@ -597,18 +699,24 @@ class SpeedOverlay(QtWidgets.QWidget):
         limit_str = format_data_size(limit)
         is_over_limit = total >= limit
         
+        # Get colors (use defaults if not set)
+        dl_color = getattr(self, 'dl_color', '#00FF00')
+        ul_color = getattr(self, 'ul_color', '#FF0000')
+        text_color = getattr(self, 'text_color', '#FFFFFF')
+        
         if is_over_limit:
             # Show warning icon if over limit
-            self.label.setText(
-                f"\u26A0 \u2193 {dl_str}   \u2191 {ul_str}\n"
-                f"Today: {today_total_str} / {limit_str}"
-            )
+            self.label.setText(f'''
+                <span style="color: #FFFF00;">⚠</span> 
+                <span style="color: {dl_color};">↓ {dl_str}</span>   <span style="color: {ul_color};">↑ {ul_str}</span><br>
+                <span style="color: {text_color};">Today: {today_total_str} / {limit_str}</span>
+            ''')
         else:
             # Normal display without icon
-            self.label.setText(
-                f"\u2193 {dl_str}   \u2191 {ul_str}\n"
-                f"Today: {today_total_str} / {limit_str}"
-            )
+            self.label.setText(f'''
+                <span style="color: {dl_color};">↓ {dl_str}</span>   <span style="color: {ul_color};">↑ {ul_str}</span><br>
+                <span style="color: {text_color};">Today: {today_total_str} / {limit_str}</span>
+            ''')
         
         # Resize box to fit text content
         self.label.adjustSize()

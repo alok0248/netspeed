@@ -4,20 +4,19 @@ from netspeed_tracker.monitor import NetMonitor
 from netspeed_tracker.ui import SpeedOverlay
 from netspeed_tracker.tray import start_tray
 
-# Windows-specific file locking
-if sys.platform == 'win32':
-    import msvcrt
-    
-    class SingleInstance:
-        def __init__(self):
-            self.lockfile = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'netspeed.lock')
-            self.lock_file_handle = None
+# Cross-platform single instance lock
+class SingleInstance:
+    def __init__(self):
+        self.lockfile = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'netspeed.lock')
+        self.lock_file_handle = None
 
-        def is_running(self):
-            try:
-                # Try to open the lock file in write mode
-                self.lock_file_handle = open(self.lockfile, 'w')
-                # Try to acquire an exclusive lock (non-blocking)
+    def is_running(self):
+        try:
+            # Try to open the lock file in write mode
+            self.lock_file_handle = open(self.lockfile, 'w')
+            # Try to acquire an exclusive lock (non-blocking)
+            if sys.platform == 'win32':
+                import msvcrt
                 try:
                     msvcrt.locking(self.lock_file_handle.fileno(), msvcrt.LK_NBLCK, 1)
                     return False
@@ -25,33 +24,8 @@ if sys.platform == 'win32':
                     # Lock is held by another process
                     self.lock_file_handle.close()
                     return True
-            except Exception:
-                return False
-
-        def release(self):
-            if self.lock_file_handle:
-                try:
-                    msvcrt.locking(self.lock_file_handle.fileno(), msvcrt.LK_UNLCK, 1)
-                    self.lock_file_handle.close()
-                except Exception:
-                    pass
-                try:
-                    os.unlink(self.lockfile)
-                except Exception:
-                    pass
-else:
-    import fcntl
-    
-    class SingleInstance:
-        def __init__(self):
-            self.lockfile = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'netspeed.lock')
-            self.lock_file_handle = None
-
-        def is_running(self):
-            try:
-                # Try to open the lock file in write mode
-                self.lock_file_handle = open(self.lockfile, 'w')
-                # Try to acquire an exclusive lock (non-blocking)
+            else:
+                import fcntl
                 try:
                     fcntl.flock(self.lock_file_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     return False
@@ -59,20 +33,25 @@ else:
                     # Lock is held by another process
                     self.lock_file_handle.close()
                     return True
-            except Exception:
-                return False
+        except Exception:
+            return False
 
-        def release(self):
-            if self.lock_file_handle:
-                try:
+    def release(self):
+        if self.lock_file_handle:
+            try:
+                if sys.platform == 'win32':
+                    import msvcrt
+                    msvcrt.locking(self.lock_file_handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
                     fcntl.flock(self.lock_file_handle, fcntl.LOCK_UN)
-                    self.lock_file_handle.close()
-                except Exception:
-                    pass
-                try:
-                    os.unlink(self.lockfile)
-                except Exception:
-                    pass
+                self.lock_file_handle.close()
+            except Exception:
+                pass
+            try:
+                os.unlink(self.lockfile)
+            except Exception:
+                pass
 
 class Worker(QtCore.QObject):
     update_signal = QtCore.pyqtSignal(float, float, float, float, bool)
@@ -88,7 +67,8 @@ class Worker(QtCore.QObject):
             self.update_signal.emit(dl, ul, total, limit, fullscreen)
             time.sleep(1)
 
-def run():
+def main():
+    """Entry point for the application. Called by run.pyw and PyInstaller."""
     try:
         print("Starting NetSpeed...")
         
@@ -107,7 +87,7 @@ def run():
         print("Showing overlay...")
         overlay.show()
         print("Starting tray icon...")
-        start_tray(app, overlay)
+        start_tray(app, overlay, monitor)
         
         worker = Worker(monitor)
         thread = QtCore.QThread()
@@ -125,12 +105,23 @@ def run():
         # app.aboutToQuit.connect(single_instance.release)
         
         print("Entering app exec loop...")
-        sys.exit(app.exec_())
+        try:
+            app.exec_()
+        except Exception as e:
+            print('Exception in app exec:', e)
+            import traceback
+            traceback.print_exc()
+            input("Press Enter to exit...")
+        finally:
+            print('Application event loop has ended.')
     except Exception as e:
-        print(f"Error: {e}")
+        print('Exception in main:', e)
         import traceback
         traceback.print_exc()
         input("Press Enter to exit...")
 
 if __name__ == "__main__":
-    run()
+    main()
+
+# expose run for external scripts and PyInstaller entry point
+run = main
