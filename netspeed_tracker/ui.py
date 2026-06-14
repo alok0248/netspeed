@@ -1,7 +1,7 @@
 import sys
 import ctypes
 from PyQt5 import QtWidgets, QtCore, QtGui
-from .monitor import format_data_size, format_speed
+from netspeed_tracker.monitor import format_data_size, format_speed
 
 # Windows API constants and functions
 user32 = ctypes.windll.user32
@@ -482,8 +482,9 @@ class SpeedOverlay(QtWidgets.QWidget):
         fix_action = menu.addAction(fix_label)
         fix_action.triggered.connect(self.toggle_fix_position)
         
-        restart_action = menu.addAction('Restart')
-        restart_action.triggered.connect(self.restart_app)
+        menu.addSeparator()
+        reset_action = menu.addAction('Reset to default setting')
+        reset_action.triggered.connect(self.reset_to_default)
         
         exit_action = menu.addAction('Exit')
         exit_action.triggered.connect(QtWidgets.qApp.quit)
@@ -575,7 +576,11 @@ class SpeedOverlay(QtWidgets.QWidget):
             new_limit = dialog.get_limit()
             self.monitor.set_bandwidth_limit(new_limit)
     
-    def restart_app(self):
+    def reset_to_default(self):
+        # Clear all stored settings to defaults and ensure they are written
+        self.settings.clear()
+        self.settings.sync()
+        # Restart the application to apply defaults
         QtCore.QProcess.startDetached(sys.executable, sys.argv)
         QtWidgets.qApp.quit()
 

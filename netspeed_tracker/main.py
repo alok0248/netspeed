@@ -1,8 +1,8 @@
 import sys, time, os
 from PyQt5 import QtWidgets, QtCore
-from .monitor import NetMonitor
-from .ui import SpeedOverlay
-from .tray import start_tray
+from netspeed_tracker.monitor import NetMonitor
+from netspeed_tracker.ui import SpeedOverlay
+from netspeed_tracker.tray import start_tray
 
 # Windows-specific file locking
 if sys.platform == 'win32':
