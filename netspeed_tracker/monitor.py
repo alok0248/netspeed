@@ -142,9 +142,31 @@ class NetMonitor:
         today_date_str = datetime.date.today().isoformat()
         
         if saved_date == today_date_str:
-            # Load from settings
-            self.today_rx = self.settings.value('today_rx', 0, type=int)
-            self.today_tx = self.settings.value('today_tx', 0, type=int)
+            # First try loading from settings
+            self.today_rx = max(0, self.settings.value('today_rx', 0, type=int))
+            self.today_tx = max(0, self.settings.value('today_tx', 0, type=int))
+            
+            # If values are too low (or zero), recalculate from database
+            try:
+                with self.usage_lock:
+                    conn = sqlite3.connect(self.db_path)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT SUM(downloaded), SUM(uploaded) FROM usage WHERE date = ?", (today_date_str,))
+                    db_dl, db_ul = cursor.fetchone()
+                    conn.close()
+                    
+                    db_dl = db_dl or 0
+                    db_ul = db_ul or 0
+                    
+                    # Use database values if they are higher (this fixes reset issues)
+                    if db_dl > self.today_rx:
+                        self.today_rx = db_dl
+                    if db_ul > self.today_tx:
+                        self.today_tx = db_ul
+                        
+            except Exception as e:
+                print(f"Error recalculating from database: {e}")
+                
         else:
             # Reset for new day
             self.today_rx = 0
@@ -162,12 +184,17 @@ class NetMonitor:
         current = psutil.net_io_counters()
         downloaded = current.bytes_recv - self.last.bytes_recv
         uploaded = current.bytes_sent - self.last.bytes_sent
+        # Ensure no negative values (can happen with interface resets)
+        if downloaded < 0:
+            downloaded = 0
+        if uploaded < 0:
+            uploaded = 0
         total = downloaded + uploaded
         # Update last snapshot
         self.last = current
-        # Update daily counters
-        self.today_rx += downloaded
-        self.today_tx += uploaded
+        # Update daily counters, ensuring they don't go negative
+        self.today_rx = max(0, self.today_rx + downloaded)
+        self.today_tx = max(0, self.today_tx + uploaded)
         self._save_today_data()
         # Log to database
         self._log_usage_sample(downloaded, uploaded, total)
@@ -294,15 +321,22 @@ class NetMonitor:
         hourly = defaultdict(lambda: {'downloaded': 0, 'uploaded': 0, 'total': 0})
         minutely = defaultdict(lambda: {'downloaded': 0, 'uploaded': 0, 'total': 0})
         
+        # Also fix the 'latest' rows to have correct total
+        fixed_latest = []
+        
         for row in rows:
             downloaded = row['downloaded']
             uploaded = row['uploaded']
             total = downloaded + uploaded
-            year = row.get('month') or row['timestamp'][:4]  # Extract year (YYYY)
-            month = row.get('month') or row['timestamp'][:7]
-            date = row.get('date') or row['timestamp'][:10]
-            hour = row.get('hour') or row['timestamp'][11:13]
-            minute = row.get('minute') or row['timestamp'][:16]
+            
+            # Always parse timestamp to get consistent keys, ignore stored date/month/hour/minute
+            # Timestamp format is "YYYY-MM-DDTHH:MM:SS"
+            ts = row['timestamp']
+            year = ts[:4]
+            month = ts[:7]
+            date = ts[:10]
+            hour = ts[11:13]
+            minute_key = f"{date} {ts[11:16]}"  # "YYYY-MM-DD HH:MM"
             
             yearly[year]['downloaded'] += downloaded
             yearly[year]['uploaded'] += uploaded
@@ -320,9 +354,14 @@ class NetMonitor:
             hourly[f'{date} {hour}:00']['uploaded'] += uploaded
             hourly[f'{date} {hour}:00']['total'] += total
             
-            minutely[minute]['downloaded'] += downloaded
-            minutely[minute]['uploaded'] += uploaded
-            minutely[minute]['total'] += total
+            minutely[minute_key]['downloaded'] += downloaded
+            minutely[minute_key]['uploaded'] += uploaded
+            minutely[minute_key]['total'] += total
+            
+            # Fix row's total for latest
+            fixed_row = row.copy()
+            fixed_row['total'] = total
+            fixed_latest.append(fixed_row)
         
         def to_items(data):
             return [
@@ -332,12 +371,12 @@ class NetMonitor:
         
         return {
             'today': today,
-            'yearly': sorted(to_items(yearly), key=lambda item: item['label'])[-30:],
-            'monthly': sorted(to_items(monthly), key=lambda item: item['label'])[-30:],
-            'daily': sorted(to_items(daily), key=lambda item: item['label'])[-30:],
-            'hourly': sorted(to_items(hourly), key=lambda item: item['label'])[-30:],
-            'minute': sorted(to_items(minutely), key=lambda item: item['label'])[-30:],
-            'latest': rows[-30:],
+            'yearly': sorted(to_items(yearly), key=lambda item: item['label'], reverse=True)[:30],
+            'monthly': sorted(to_items(monthly), key=lambda item: item['label'], reverse=True)[:30],
+            'daily': sorted(to_items(daily), key=lambda item: item['label'], reverse=True)[:30],
+            'hourly': sorted(to_items(hourly), key=lambda item: item['label'], reverse=True)[:30],
+            'minute': sorted(to_items(minutely), key=lambda item: item['label'], reverse=True)[:30],
+            'latest': fixed_latest[-30:],
             'records_count': len(rows),
             'log_path': str(self.db_path),
             'generated_at': datetime.datetime.now().isoformat(timespec='seconds')
@@ -391,12 +430,14 @@ class NetMonitor:
                 ul = 0
                 
             self.last = cur
-            self.today_rx += dl
-            self.today_tx += ul
+            # Update daily counters, ensuring they don't go negative
+            self.today_rx = max(0, self.today_rx + dl)
+            self.today_tx = max(0, self.today_tx + ul)
             
+            delta_total = dl + ul
             total = self.today_rx + self.today_tx
             self._save_today_data()
-            self._log_usage_sample(dl, ul, total)
+            self._log_usage_sample(dl, ul, delta_total)
             fullscreen = self._is_fullscreen()
             return dl, ul, total, self.bandwidth_limit, fullscreen
         except Exception as e:
