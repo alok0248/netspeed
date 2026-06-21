@@ -1,0 +1,49 @@
+
+name: Build macOS DMG
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          
+      - name: Make scripts executable
+        run: |
+          chmod +x installer/macos/build.sh
+          chmod +x installer/macos/pkgbuild.sh
+          
+      - name: Build macOS Intel executable
+        run: |
+          cd installer/macos
+          ./build.sh
+          
+      - name: Create DMG
+        run: |
+          cd installer/macos
+          ./pkgbuild.sh
+          
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetSpeed-macOS-Intel
+          path: dist/v1.0.0/macos/NetSpeed-1.0.0-macos-intel.dmg

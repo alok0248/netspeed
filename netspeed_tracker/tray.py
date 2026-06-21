@@ -950,6 +950,7 @@ def open_usage_dashboard_browser(monitor):
             // Find which button corresponds to this view and mark as active
             document.querySelectorAll('.view-toggle button').forEach(btn => {{
                 if ((view === 'all' && btn.textContent === 'Show All') || 
+                    (view === 'yearly' && btn.textContent.includes('Yearly')) || 
                     (view === 'monthly' && btn.textContent.includes('Monthly')) || 
                     (view === 'daily' && btn.textContent.includes('Daily')) || 
                     (view === 'hourly' && btn.textContent.includes('Hourly')) || 
@@ -986,13 +987,13 @@ def open_usage_dashboard_browser(monitor):
 
         // Update all charts function for static dashboard
         function updateAllCharts() {{
-            ['monthly', 'daily', 'hourly', 'minute'].forEach(key => {{
+            ['yearly', 'monthly', 'daily', 'hourly', 'minute'].forEach(key => {{
                 createChart(key, chartTypes[key] || 'line');
             }});
         }}
         
         // Initialize all charts
-        ['monthly', 'daily', 'hourly', 'minute'].forEach(key => {{
+        ['yearly', 'monthly', 'daily', 'hourly', 'minute'].forEach(key => {{
             createChart(key, 'line');
         }});
         

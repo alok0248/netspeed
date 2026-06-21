@@ -195,7 +195,7 @@ class NetMonitor:
                 now.strftime('%Y-%m-%d'),
                 now.strftime('%Y-%m'),
                 now.strftime('%H'),
-                now.strftime('%H:%M')
+                now.strftime('%Y-%m-%d %H:%M')
             ))
             conn.commit()
             conn.close()
